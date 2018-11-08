@@ -147,7 +147,7 @@
 //! ```
 //!
 //! Note that you cannot use the [`?` operator] in functions that do not return
-//! a [`Result<T, E>`][`Result`] (e.g. `main`). Instead, you can call [`.unwrap()`]
+//! a [`Result<T, E>`][`Result`]. Instead, you can call [`.unwrap()`]
 //! or `match` on the return value to catch any possible errors:
 //!
 //! ```no_run
@@ -267,27 +267,28 @@
 //! [`Result`]: ../result/enum.Result.html
 //! [`.unwrap()`]: ../result/enum.Result.html#method.unwrap
 
+#[cfg(feature="alloc")]
+use alloc::string::String;
+#[cfg(feature="alloc")]
+use alloc::vec::Vec;
 use core::cmp;
-use core::str as core_str;
 use core::fmt;
-use core::result;
-#[cfg(feature="collections")] use collections::string::String;
 use core::str;
-#[cfg(feature="collections")] use collections::vec::Vec;
-#[cfg(not(core_memchr))]
-mod memchr;
-#[cfg(all(feature="collections",core_memchr))]
+#[cfg(feature="alloc")]
 use core::slice::memchr;
 use core::ptr;
 
-#[cfg(feature="collections")] pub use self::buffered::{BufReader, BufWriter, LineWriter};
-#[cfg(feature="collections")] pub use self::buffered::IntoInnerError;
+#[cfg(feature="alloc")]
+pub use self::buffered::{BufReader, BufWriter, LineWriter};
+#[cfg(feature="alloc")]
+pub use self::buffered::IntoInnerError;
 pub use self::cursor::Cursor;
 pub use self::error::{Result, Error, ErrorKind};
 pub use self::util::{copy, sink, Sink, empty, Empty, repeat, Repeat};
 
 pub mod prelude;
-#[cfg(feature="collections")] mod buffered;
+#[cfg(feature="alloc")]
+mod buffered;
 mod cursor;
 mod error;
 mod impls;
@@ -295,10 +296,10 @@ mod util;
 
 const DEFAULT_BUF_SIZE: usize = 8 * 1024;
 
-#[cfg(feature="collections")]
+#[cfg(feature="alloc")]
 struct Guard<'a> { buf: &'a mut Vec<u8>, len: usize }
 
-#[cfg(feature="collections")]
+#[cfg(feature="alloc")]
 impl<'a> Drop for Guard<'a> {
     fn drop(&mut self) {
         unsafe { self.buf.set_len(self.len); }
@@ -323,7 +324,7 @@ impl<'a> Drop for Guard<'a> {
 // 2. We're passing a raw buffer to the function `f`, and it is expected that
 //    the function only *appends* bytes to the buffer. We'll get undefined
 //    behavior if existing bytes are overwritten to have non-UTF-8 data.
-#[cfg(feature="collections")]
+#[cfg(feature="alloc")]
 fn append_to_string<F>(buf: &mut String, f: F) -> Result<usize>
     where F: FnOnce(&mut Vec<u8>) -> Result<usize>
 {
@@ -346,20 +347,28 @@ fn append_to_string<F>(buf: &mut String, f: F) -> Result<usize>
 // avoid paying to allocate and zero a huge chunk of memory if the reader only
 // has 4 bytes while still making large reads if the reader does have a ton
 // of data to return. Simply tacking on an extra DEFAULT_BUF_SIZE space every
-// time is 4,500 times (!) slower than this if the reader has a very small
-// amount of data to return.
+// time is 4,500 times (!) slower than a default reservation size of 32 if the
+// reader has a very small amount of data to return.
 //
 // Because we're extending the buffer with uninitialized data for trusted
 // readers, we need to make sure to truncate that if any of this panics.
-#[cfg(feature="collections")]
+#[cfg(feature="alloc")]
 fn read_to_end<R: Read + ?Sized>(r: &mut R, buf: &mut Vec<u8>) -> Result<usize> {
+    read_to_end_with_reservation(r, buf, 32)
+}
+
+#[cfg(feature="alloc")]
+fn read_to_end_with_reservation<R: Read + ?Sized>(r: &mut R,
+                                                  buf: &mut Vec<u8>,
+                                                  reservation_size: usize) -> Result<usize>
+{
     let start_len = buf.len();
     let mut g = Guard { len: buf.len(), buf: buf };
     let ret;
     loop {
         if g.len == g.buf.len() {
             unsafe {
-                g.buf.reserve(32);
+                g.buf.reserve(reservation_size);
                 let capacity = g.buf.capacity();
                 g.buf.set_len(capacity);
                 r.initializer().initialize(&mut g.buf[g.len..]);
@@ -587,7 +596,7 @@ pub trait Read {
     /// file.)
     ///
     /// [`std::fs::read`]: ../fs/fn.read.html
-    #[cfg(feature = "collections")]
+    #[cfg(feature="alloc")]
     fn read_to_end(&mut self, buf: &mut Vec<u8>) -> Result<usize> {
         read_to_end(self, buf)
     }
@@ -630,7 +639,7 @@ pub trait Read {
     /// reading from a file.)
     ///
     /// [`std::fs::read_to_string`]: ../fs/fn.read_to_string.html
-    #[cfg(feature = "collections")]
+    #[cfg(feature="alloc")]
     fn read_to_string(&mut self, buf: &mut String) -> Result<usize> {
         // Note that we do *not* call `.read_to_end()` here. We are passing
         // `&mut Vec<u8>` (the raw contents of `buf`) into the `read_to_end`
@@ -782,47 +791,6 @@ pub trait Read {
     /// ```
     fn bytes(self) -> Bytes<Self> where Self: Sized {
         Bytes { inner: self }
-    }
-
-    /// Transforms this `Read` instance to an [`Iterator`] over [`char`]s.
-    ///
-    /// This adaptor will attempt to interpret this reader as a UTF-8 encoded
-    /// sequence of characters. The returned iterator will return [`None`] once
-    /// EOF is reached for this reader. Otherwise each element yielded will be a
-    /// [`Result`]`<`[`char`]`, E>` where `E` may contain information about what I/O error
-    /// occurred or where decoding failed.
-    ///
-    /// Currently this adaptor will discard intermediate data read, and should
-    /// be avoided if this is not desired.
-    ///
-    /// # Examples
-    ///
-    /// [`File`]s implement `Read`:
-    ///
-    /// [`File`]: ../fs/struct.File.html
-    /// [`Iterator`]: ../../std/iter/trait.Iterator.html
-    /// [`Result`]: ../../std/result/enum.Result.html
-    /// [`char`]: ../../std/primitive.char.html
-    /// [`None`]: ../../std/option/enum.Option.html#variant.None
-    ///
-    /// ```no_run
-    /// #![feature(io)]
-    /// use std::io;
-    /// use std::io::prelude::*;
-    /// use std::fs::File;
-    ///
-    /// fn main() -> io::Result<()> {
-    ///     let mut f = File::open("foo.txt")?;
-    ///
-    ///     for c in f.chars() {
-    ///         println!("{}", c.unwrap());
-    ///     }
-    ///     Ok(())
-    /// }
-    /// ```
-    #[allow(deprecated)]
-    fn chars(self) -> Chars<Self> where Self: Sized {
-        Chars { inner: self }
     }
 
     /// Creates an adaptor which will chain this stream with another.
@@ -1211,8 +1179,8 @@ pub trait Write {
 pub trait Seek {
     /// Seek to an offset, in bytes, in a stream.
     ///
-    /// A seek beyond the end of a stream is allowed, but implementation
-    /// defined.
+    /// A seek beyond the end of a stream is allowed, but behavior is defined
+    /// by the implementation.
     ///
     /// If the seek operation completed successfully,
     /// this method returns the new position from the start of the stream.
@@ -1251,7 +1219,7 @@ pub enum SeekFrom {
     Current(i64),
 }
 
-#[cfg(feature="collections")]
+#[cfg(feature="alloc")]
 fn read_until<R: BufRead + ?Sized>(r: &mut R, delim: u8, buf: &mut Vec<u8>)
                                    -> Result<usize> {
     let mut read = 0;
@@ -1331,9 +1299,10 @@ fn read_until<R: BufRead + ?Sized>(r: &mut R, delim: u8, buf: &mut Vec<u8>)
 /// }
 /// ```
 ///
-#[cfg(feature="collections")]
+#[cfg(feature="alloc")]
 pub trait BufRead: Read {
-    /// Fills the internal buffer of this object, returning the buffer contents.
+    /// Returns the contents of the internal buffer, filling it with more data
+    /// from the inner reader if it is empty.
     ///
     /// This function is a lower-level call. It needs to be paired with the
     /// [`consume`] method to function properly. When calling this
@@ -1707,7 +1676,7 @@ impl<T: Read, U: Read> Read for Chain<T, U> {
     }
 }
 
-#[cfg(feature="collections")]
+#[cfg(feature="alloc")]
 impl<T: BufRead, U: BufRead> BufRead for Chain<T, U> {
     fn fill_buf(&mut self) -> Result<&[u8]> {
         if !self.done_first {
@@ -1890,9 +1859,16 @@ impl<T: Read> Read for Take<T> {
     unsafe fn initializer(&self) -> Initializer {
         self.inner.initializer()
     }
+
+    #[cfg(feature="alloc")]
+    fn read_to_end(&mut self, buf: &mut Vec<u8>) -> Result<usize> {
+        let reservation_size = cmp::min(self.limit, 32) as usize;
+
+        read_to_end_with_reservation(self, buf, reservation_size)
+    }
 }
 
-#[cfg(feature="collections")]
+#[cfg(feature="alloc")]
 impl<T: BufRead> BufRead for Take<T> {
     fn fill_buf(&mut self) -> Result<&[u8]> {
         // Don't call into inner reader at all at EOF because it may still block
@@ -1913,7 +1889,7 @@ impl<T: BufRead> BufRead for Take<T> {
     }
 }
 
-fn read_one_byte(reader: &mut Read) -> Option<Result<u8>> {
+fn read_one_byte(reader: &mut dyn Read) -> Option<Result<u8>> {
     let mut buf = [0];
     loop {
         return match reader.read(&mut buf) {
@@ -1944,74 +1920,6 @@ impl<R: Read> Iterator for Bytes<R> {
     }
 }
 
-/// An iterator over the `char`s of a reader.
-///
-/// This struct is generally created by calling [`chars`][chars] on a reader.
-/// Please see the documentation of `chars()` for more details.
-///
-/// [chars]: trait.Read.html#method.chars
-#[derive(Debug)]
-#[allow(deprecated)]
-pub struct Chars<R> {
-    inner: R,
-}
-
-/// An enumeration of possible errors that can be generated from the `Chars`
-/// adapter.
-#[derive(Debug)]
-#[allow(deprecated)]
-pub enum CharsError {
-    /// Variant representing that the underlying stream was read successfully
-    /// but it did not contain valid utf8 data.
-    NotUtf8,
-
-    /// Variant representing that an I/O error occurred.
-    Other(Error),
-}
-
-#[allow(deprecated)]
-impl<R: Read> Iterator for Chars<R> {
-    type Item = result::Result<char, CharsError>;
-
-    fn next(&mut self) -> Option<result::Result<char, CharsError>> {
-        let first_byte = match read_one_byte(&mut self.inner)? {
-            Ok(b) => b,
-            Err(e) => return Some(Err(CharsError::Other(e))),
-        };
-        let width = core_str::utf8_char_width(first_byte);
-        if width == 1 { return Some(Ok(first_byte as char)) }
-        if width == 0 { return Some(Err(CharsError::NotUtf8)) }
-        let mut buf = [first_byte, 0, 0, 0];
-        {
-            let mut start = 1;
-            while start < width {
-                match self.inner.read(&mut buf[start..width]) {
-                    Ok(0) => return Some(Err(CharsError::NotUtf8)),
-                    Ok(n) => start += n,
-                    Err(ref e) if e.kind() == ErrorKind::Interrupted => continue,
-                    Err(e) => return Some(Err(CharsError::Other(e))),
-                }
-            }
-        }
-        Some(match str::from_utf8(&buf[..width]).ok() {
-            Some(s) => Ok(s.chars().next().unwrap()),
-            None => Err(CharsError::NotUtf8),
-        })
-    }
-}
-
-#[allow(deprecated)]
-impl fmt::Display for CharsError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            CharsError::NotUtf8 => {
-                "byte stream did not contain valid utf8".fmt(f)
-            }
-            CharsError::Other(ref e) => e.fmt(f),
-        }
-    }
-}
-
 /// An iterator over the contents of an instance of `BufRead` split on a
 /// particular byte.
 ///
@@ -2019,14 +1927,14 @@ impl fmt::Display for CharsError {
 /// `BufRead`. Please see the documentation of `split()` for more details.
 ///
 /// [split]: trait.BufRead.html#method.split
-#[cfg(feature="collections")]
+#[cfg(feature="alloc")]
 #[derive(Debug)]
 pub struct Split<B> {
     buf: B,
     delim: u8,
 }
 
-#[cfg(feature="collections")]
+#[cfg(feature="alloc")]
 impl<B: BufRead> Iterator for Split<B> {
     type Item = Result<Vec<u8>>;
 
@@ -2051,13 +1959,13 @@ impl<B: BufRead> Iterator for Split<B> {
 /// `BufRead`. Please see the documentation of `lines()` for more details.
 ///
 /// [lines]: trait.BufRead.html#method.lines
-#[cfg(feature="collections")]
+#[cfg(feature="alloc")]
 #[derive(Debug)]
 pub struct Lines<B> {
     buf: B,
 }
 
-#[cfg(feature="collections")]
+#[cfg(feature="alloc")]
 impl<B: BufRead> Iterator for Lines<B> {
     type Item = Result<String>;
 

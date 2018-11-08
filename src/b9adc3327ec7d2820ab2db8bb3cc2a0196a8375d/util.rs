@@ -13,7 +13,7 @@
 use core::fmt;
 use io::{self, Read, Initializer, Write, ErrorKind};
 use core::mem;
-#[cfg(feature="collections")] use io::BufRead;
+#[cfg(feature="alloc")] use io::BufRead;
 
 /// Copies the entire contents of a reader into a writer.
 ///
@@ -23,6 +23,11 @@ use core::mem;
 ///
 /// On success, the total number of bytes that were copied from
 /// `reader` to `writer` is returned.
+///
+/// If you’re wanting to copy the contents of one file to another and you’re
+/// working with filesystem paths, see the [`fs::copy`] function.
+///
+/// [`fs::copy`]: ../fs/fn.copy.html
 ///
 /// # Errors
 ///
@@ -104,7 +109,7 @@ impl Read for Empty {
     }
 }
 
-#[cfg(feature="collections")]
+#[cfg(feature="alloc")]
 impl BufRead for Empty {
     #[inline]
     fn fill_buf(&mut self) -> io::Result<&[u8]> { Ok(&[]) }
@@ -212,7 +217,7 @@ mod tests {
         assert_eq!(copy(&mut r, &mut w).unwrap(), 4);
 
         let mut r = repeat(0).take(1 << 17);
-        assert_eq!(copy(&mut r as &mut Read, &mut w as &mut Write).unwrap(), 1 << 17);
+        assert_eq!(copy(&mut r as &mut dyn Read, &mut w as &mut dyn Write).unwrap(), 1 << 17);
     }
 
     #[test]

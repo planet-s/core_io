@@ -10,13 +10,12 @@
 
 #[cfg(feature="alloc")] use alloc::boxed::Box;
 #[cfg(not(feature="alloc"))] use ::FakeBox as Box;
-use core::convert::Into;
 use core::fmt;
 use core::marker::{Send, Sync};
 use core::option::Option::{self, Some, None};
 use core::result;
-#[cfg(feature="collections")] use collections::string::String;
-#[cfg(not(feature="collections"))] use ::ErrorString as String;
+#[cfg(feature="alloc")] use alloc::string::String;
+#[cfg(not(feature="alloc"))] use ::ErrorString as String;
 use core::convert::From;
 
 /// A specialized [`Result`](../result/enum.Result.html) type for I/O
@@ -79,9 +78,9 @@ impl fmt::Debug for Error {
 enum Repr {
     Os(i32),
     Simple(ErrorKind),
-    #[cfg(feature="alloc")]
+    #[cfg(feature = "alloc")]
     Custom(Box<Custom>),
-    #[cfg(not(feature="alloc"))]
+    #[cfg(not(feature = "alloc"))]
     Custom(Custom),
 }
 
@@ -194,7 +193,7 @@ impl ErrorKind {
             ErrorKind::Interrupted => "operation interrupted",
             ErrorKind::Other => "other os error",
             ErrorKind::UnexpectedEof => "unexpected end of file",
-            ErrorKind::__Nonexhaustive => unreachable!()
+            _ => "unknown error",
         }
     }
 }
@@ -202,6 +201,19 @@ impl ErrorKind {
 /// Intended for use for errors not exposed to the user, where allocating onto
 /// the heap (for normal construction via Error::new) is too costly.
 impl From<ErrorKind> for Error {
+    /// Converts an [`ErrorKind`] into an [`Error`].
+    ///
+    /// This conversion allocates a new error with a simple representation of error kind.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::io::{Error, ErrorKind};
+    ///
+    /// let not_found = ErrorKind::NotFound;
+    /// let error = Error::from(not_found);
+    /// assert_eq!("entity not found", format!("{}", error));
+    /// ```
     #[inline]
     fn from(kind: ErrorKind) -> Error {
         Error {
