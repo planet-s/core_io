@@ -377,7 +377,7 @@ impl<R: Seek> Seek for BufReader<R> {
 /// [`flush`]: #method.flush
 pub struct BufWriter<W: Write> {
     inner: Option<W>,
-    buf: Vec<u8>,
+    pub /* relibc */ buf: Vec<u8>,
     // #30888: If the inner writer panics in a call to write, we don't want to
     // write the buffered data a second time in BufWriter's destructor. This
     // flag tells the Drop impl if it should skip the flush.
@@ -719,7 +719,7 @@ impl<W> fmt::Display for IntoInnerError<W> {
 /// }
 /// ```
 pub struct LineWriter<W: Write> {
-    inner: BufWriter<W>,
+    pub /* relibc */ inner: BufWriter<W>,
     need_flush: bool,
 }
 
