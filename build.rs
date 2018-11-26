@@ -38,6 +38,8 @@ impl Sub<Mapping> for Vec<Mapping> {
 fn main() {
 	let ver=rustc_version::version_meta();
 
+	let io_commit="b9adc3327ec7d2820ab2db8bb3cc2a0196a8375d";
+	/*
 	let io_commit=match env::var("CORE_IO_COMMIT") {
 		Ok(c) => c,
 		Err(env::VarError::NotUnicode(_)) => panic!("Invalid commit specified in CORE_IO_COMMIT"),
@@ -48,12 +50,13 @@ fn main() {
 			mappings.iter().find(|&&Mapping(elem,_)|elem==compiler).expect("Unknown compiler version, upgrade core_io?").1.to_owned()
 		}
 	};
+	*/
 
-	if ver.commit_date.as_ref().map_or(false,|d| &**d>="2018-01-01") {
+	if ver.commit_date.as_ref().map_or(true,|d| &**d>="2018-01-01") {
 		println!("cargo:rustc-cfg=core_memchr");
 	}
 
-	if ver.commit_date.as_ref().map_or(false,|d| &**d>="2017-06-15") {
+	if ver.commit_date.as_ref().map_or(true,|d| &**d>="2017-06-15") {
 		println!("cargo:rustc-cfg=no_collections");
 	}
 
