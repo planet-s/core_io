@@ -475,6 +475,10 @@ impl<W: Write> BufWriter<W> {
         ret
     }
 
+    pub fn purge_buf(&mut self) {
+        self.buf = vec![];
+    }
+
     /// Gets a reference to the underlying writer.
     ///
     /// # Examples
@@ -835,6 +839,11 @@ impl<W: Write> LineWriter<W> {
                 need_flush: false,
             }, e)
         })
+    }
+
+    pub fn purge(&mut self) {
+        self.inner.purge_buf();
+        self.need_flush = false;
     }
 }
 
